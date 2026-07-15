@@ -62,9 +62,9 @@ async def generate_architecture(payload: ArchitectureRequest):
             logger.info("Starting design document generation...")
             design_doc = await generate_design_document(user_input)
             logger.info(f"Design document generated successfully ({len(design_doc)} chars)")
-        except Exception as design_error:
-            logger.error(f"Design document generation failed: {design_error}")
-            design_doc = f"Design document generation failed: {str(design_error)}"
+        except Exception:
+            logger.exception("Design document generation failed")
+            design_doc = "Design document generation failed"
         
         try:
             if USE_MCP and MCP_AVAILABLE:
@@ -151,9 +151,9 @@ async def generate_architecture(payload: ArchitectureRequest):
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
-    except Exception as e:
-        logger.error(f"Error in generate_architecture: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Error in generate_architecture")
+        raise HTTPException(status_code=500, detail="Failed to generate architecture")
 
 @router.get("/saved-architectures")
 async def get_saved():
@@ -164,9 +164,9 @@ async def get_saved():
         architectures = await load_architectures()
         logger.info(f"Loaded {len(architectures)} saved architectures")
         return {"architectures": architectures}
-    except Exception as e:
-        logger.error(f"Error loading architectures: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to load architectures: {str(e)}")
+    except Exception:
+        logger.exception("Error loading architectures")
+        raise HTTPException(status_code=500, detail="Failed to load architectures")
 
 @router.post("/save-architecture")
 async def save_arch(request: Request):
@@ -220,9 +220,9 @@ async def save_arch(request: Request):
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
-    except Exception as e:
-        logger.error(f"Error saving architecture: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save architecture: {str(e)}")
+    except Exception:
+        logger.exception("Error saving architecture")
+        raise HTTPException(status_code=500, detail="Failed to save architecture")
 
 
 @router.post("/check-architecture-exists")
@@ -252,9 +252,9 @@ async def check_arch_exists(request: Request):
             
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error checking architecture exists: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to check architecture: {str(e)}")
+    except Exception:
+        logger.exception("Error checking architecture exists")
+        raise HTTPException(status_code=500, detail="Failed to check architecture")
 
 @router.delete("/saved-architectures/{arch_id}")
 async def delete_arch(arch_id: str):
@@ -289,9 +289,9 @@ async def delete_arch(arch_id: str):
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
-    except Exception as e:
-        logger.error(f"Error deleting architecture: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete architecture: {str(e)}")
+    except Exception:
+        logger.exception("Error deleting architecture")
+        raise HTTPException(status_code=500, detail="Failed to delete architecture")
 
 @router.get("/saved-architectures/{arch_id}")
 async def get_architecture(arch_id: str):
@@ -314,9 +314,9 @@ async def get_architecture(arch_id: str):
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
-    except Exception as e:
-        logger.error(f"Error getting architecture: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get architecture: {str(e)}")
+    except Exception:
+        logger.exception("Error getting architecture")
+        raise HTTPException(status_code=500, detail="Failed to get architecture")
 
 @router.get("/health")
 async def health_check():
@@ -346,10 +346,11 @@ async def debug_endpoint(request: Request):
             "url": str(request.url),
             "message": "Backend is receiving data correctly"
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("Debug endpoint failed to parse request data")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Invalid request data",
             "message": "Failed to parse request data"
         }
 
@@ -386,9 +387,9 @@ async def validate_diagram_endpoint(request: Request):
         
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error in manual validation: {e}")
-        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+    except Exception:
+        logger.exception("Error in manual validation")
+        raise HTTPException(status_code=500, detail="Validation failed")
 
 @router.post("/generate-diagram-only")
 async def generate_diagram_only(request: Request):
@@ -439,9 +440,9 @@ async def generate_diagram_only(request: Request):
         
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error in diagram-only generation: {e}")
-        raise HTTPException(status_code=500, detail=f"Diagram generation failed: {str(e)}")
+    except Exception:
+        logger.exception("Error in diagram-only generation")
+        raise HTTPException(status_code=500, detail="Diagram generation failed")
 
 def generate_preview_from_document(document: str) -> str:
     """
@@ -490,16 +491,25 @@ async def export_diagram(diagram_path: str, filename: str = None):
     import os
     
     try:
+        # Resolve the static directory to an absolute path
+        static_dir = os.path.realpath("static")
+
         # Ensure the path is safe (remove leading slash if present)
         if diagram_path.startswith('/'):
             diagram_path = diagram_path[1:]
         
-        # Construct the full file path
+        # Construct the full file path and resolve it to prevent path traversal
         if diagram_path.startswith('static/'):
-            file_path = diagram_path
+            raw_path = diagram_path
         else:
-            file_path = f"static/{diagram_path}"
+            raw_path = f"static/{diagram_path}"
         
+        file_path = os.path.realpath(raw_path)
+
+        # Reject any path that escapes the static directory
+        if not file_path.startswith(static_dir + os.sep) and file_path != static_dir:
+            raise HTTPException(status_code=400, detail="Invalid diagram path")
+
         # Check if file exists
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="Diagram file not found")
@@ -518,9 +528,11 @@ async def export_diagram(diagram_path: str, filename: str = None):
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
         
-    except Exception as e:
-        logger.error(f"Error exporting diagram: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to export diagram: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error exporting diagram")
+        raise HTTPException(status_code=500, detail="Failed to export diagram")
 
 # ==================== VALIDATION ROUTES ====================
 
@@ -565,9 +577,9 @@ async def validate_azure_components(request: Request):
             "error": None
         }
         
-    except Exception as e:
-        logger.error(f"Error validating components: {e}")
-        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+    except Exception:
+        logger.exception("Error validating components")
+        raise HTTPException(status_code=500, detail="Validation failed")
 
 @router.post("/suggest-architecture")
 async def suggest_architecture_components(request: Request):
@@ -614,9 +626,9 @@ async def suggest_architecture_components(request: Request):
             "error": None
         }
         
-    except Exception as e:
-        logger.error(f"Error suggesting architecture: {e}")
-        raise HTTPException(status_code=500, detail=f"Suggestion failed: {str(e)}")
+    except Exception:
+        logger.exception("Error suggesting architecture")
+        raise HTTPException(status_code=500, detail="Suggestion failed")
 
 @router.post("/generate-validated-diagram")
 async def generate_validated_diagram(request: Request):
@@ -665,18 +677,19 @@ async def generate_validated_diagram(request: Request):
                 "method": "basic_fallback",
                 "error": None
             }
-        except Exception as fallback_error:
+        except Exception:
+            logger.exception("Basic diagram generation fallback failed")
             return {
                 "success": False,
                 "validation_passed": False,
                 "components_used": [],
                 "diagram_code": "",
-                "validation_errors": [str(fallback_error)],
+                "validation_errors": ["Diagram generation failed"],
                 "diagram_path": None,
                 "method": "failed",
-                "error": str(fallback_error)
+                "error": "Diagram generation failed"
             }
         
-    except Exception as e:
-        logger.error(f"Error generating validated diagram: {e}")
-        raise HTTPException(status_code=500, detail=f"Validated diagram generation failed: {str(e)}")
+    except Exception:
+        logger.exception("Error generating validated diagram")
+        raise HTTPException(status_code=500, detail="Validated diagram generation failed")
