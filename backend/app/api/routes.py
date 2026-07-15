@@ -346,10 +346,11 @@ async def debug_endpoint(request: Request):
             "url": str(request.url),
             "message": "Backend is receiving data correctly"
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("Debug endpoint failed to parse request data")
         return {
             "success": False,
-            "error": str(e),
+            "error": "Invalid request data",
             "message": "Failed to parse request data"
         }
 
