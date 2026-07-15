@@ -507,7 +507,7 @@ async def export_diagram(diagram_path: str, filename: str = None):
         file_path = os.path.realpath(raw_path)
 
         # Reject any path that escapes the static directory
-        if not file_path.startswith(static_dir + os.sep) and file_path != static_dir:
+        if not (file_path == static_dir or file_path.startswith(static_dir + os.sep)):
             raise HTTPException(status_code=400, detail="Invalid diagram path")
 
         # Check if file exists
